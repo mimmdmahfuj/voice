@@ -57,6 +57,10 @@ async function finish() {
       body: JSON.stringify({ token: TOKEN, audio: audio, mime: 'audio/wav' })
     });
     const data = await res.json();
+    const raw = await res.text();
+let data;
+try { data = JSON.parse(raw); }
+catch (e) { throw new Error('সার্ভার JSON দেয়নি: ' + raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 250)); }
     if (!data.ok) throw new Error(data.error);
     if (window.opener) {
       window.opener.postMessage({ type: 'voice-text', targetId: targetId, text: data.text }, '*');
