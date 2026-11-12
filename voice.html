@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ভয়েস ইনপুট</title>
+<style>
+  body{font-family:sans-serif;text-align:center;padding:24px}
+  button{font-size:18px;padding:12px 28px;border:0;border-radius:10px;background:#0d6efd;color:#fff;cursor:pointer}
+  button.rec{background:#dc3545}
+  #st{margin:16px 0;min-height:48px}
+</style>
+</head>
+<body>
+<h3>🎤 বলুন</h3>
+<div id="st">মাইক চালু হচ্ছে...</div>
+<button id="btn">থামুন ও লিখুন</button>
+
+<script>
+const SCRIPT_URL = 'আপনার-Apps-Script-/exec-URL';
+const TOKEN = 'ওপরের-VOICE_TOKEN-এর-একই-মান';
+
+const targetId = new URLSearchParams(location.search).get('target');
+const st = document.getElementById('st');
+const btn = document.getElementById('btn');
+let rec, chunks = [], stream;
+
+async function start() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    st.textContent = 'মাইক অনুমতি পাওয়া যায়নি। অ্যাড্রেসবারের লক আইকন থেকে Allow দিন।';
+    btn.style.display = 'none';
+    return;
+  }
+  rec = new MediaRecorder(stream);
+  rec.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  rec.onstop = finish;
+  rec.start();
+  st.textContent = '🔴 রেকর্ডিং চলছে... শেষ হলে বাটন চাপুন।';
+  btn.classList.add('rec');
+  setTimeout(() => { if (rec.state === 'recording') rec.stop(); }, 60000);
+}
+
+btn.onclick = () => { if (rec && rec.state === 'recording') rec.stop(); };
+
+async function finish() {
+  stream.getTracks().forEach(t => t.stop());
+  btn.style.display = 'none';
+  st.textContent = '⏳ লেখা তৈরি হচ্ছে...';
+  try {
+    const blob = new Blob(chunks, { type: rec.mimeType });
+    const audio = await blobToWavBase64(blob);
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ token: TOKEN, audio: audio, mime: 'audio/wav' })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    if (window.opener) {
+      window.opener.postMessage({ type: 'voice-text', targetId: targetId, text: data.text }, '*');
+    }
+    st.textContent = '✅ হয়েছে';
+    setTimeout(() => window.close(), 400);
+  } catch (e) {
+    st.textContent = 'ত্রুটি: ' + (e.message || e);
+  }
+}
+
+async function blobToWavBase64(blob) {
+  const ab = await blob.arrayBuffer();
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const decoded = await ctx.decodeAudioData(ab);
+  ctx.close();
+  const sr = 16000;
+  const off = new OfflineAudioContext(1, Math.ceil(decoded.duration * sr), sr);
+  const src = off.createBufferSource();
+  src.buffer = decoded; src.connect(off.destination); src.start();
+  const samples = (await off.startRendering()).getChannelData(0);
+
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true);
+  w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  let o = 44;
+  for (let i = 0; i < samples.length; i++, o += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  let bin = '';
+  const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+start();
+</script>
+</body>
+</html>
