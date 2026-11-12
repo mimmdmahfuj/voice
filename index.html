@@ -56,8 +56,7 @@ async function finish() {
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ token: TOKEN, audio: audio, mime: 'audio/wav' })
     });
-
-const raw = await res.text();
+    const raw = await res.text();
 let data;
 try { data = JSON.parse(raw); }
 catch (e) { throw new Error('সার্ভার JSON দেয়নি: ' + raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300)); }
